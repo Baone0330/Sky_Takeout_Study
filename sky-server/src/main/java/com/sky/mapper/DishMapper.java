@@ -61,5 +61,10 @@ public interface DishMapper {
      */
     void deleteByIds(List<Long> ids);
 
-
+    /**
+     * 根据分类id或菜品名查询菜品
+     * @param dish
+     * @return
+     */
+    List<Dish> getByCategoryId(Dish dish);
 }

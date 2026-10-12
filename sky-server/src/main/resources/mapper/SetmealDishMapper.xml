@@ -4,10 +4,19 @@
 <mapper namespace="com.sky.mapper.SetmealDishMapper">
 
 
+
     <select id="getSetmealIdsByDishIds" resultType="java.lang.Long">
         select setmeal_dish.setmeal_id from setmeal_dish where dish_id in
         <foreach collection="dishIds" item="dishId" separator="," open="(" close=")">
             #{dishId}
         </foreach>
     </select>
+
+    <insert id="insertBatch">
+        insert into setmeal_dish (setmeal_id, dish_id, name, price, copies)
+        values
+            <foreach collection="setmealDishes" item="sd" separator=",">
+                (#{sd.setmealId}, #{sd.dishId}, #{sd.name}, #{sd.price}, #{sd.copies})
+            </foreach>
+    </insert>
 </mapper>
