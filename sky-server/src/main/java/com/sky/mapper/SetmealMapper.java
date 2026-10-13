@@ -44,7 +44,7 @@ public interface SetmealMapper {
      * @return
      */
     @Select("select * from setmeal where id = #{id}")
-    Setmeal getByid(Long id);
+    Setmeal getById(Long id);
 
     /**
      * 根据套餐id删除对应套餐
@@ -52,4 +52,7 @@ public interface SetmealMapper {
      */
     @Delete("DELETE from setmeal where id = #{id}")
     void deleteById(Long id);
+
+    @AutoFill(OperationType.UPDATE)
+    void update(Setmeal setmeal);
 }
