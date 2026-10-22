@@ -28,7 +28,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     private DishMapper dishMapper;
 
     @Autowired
-    private SetmealMapper  setmealMapper;
+    private SetmealMapper setmealMapper;
 
     /**
      * 添加购物车
@@ -47,15 +47,15 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
 
         //如果已经存在了，只需要将商品数量加一
         if (list != null && list.size() > 0) {
-            ShoppingCart cart  = list.get(0);
+            ShoppingCart cart = list.get(0);
             cart.setNumber(cart.getNumber() + 1);
             shoppingCartMapper.updateNumberById(cart);
-        }else{
+        } else {
             //如果不存在，需要重新插入一条购物车数据
 
             //判断本次添加到购物车的是菜品还是套餐
             Long dishId = shoppingCartDTO.getDishId();
-            if(dishId != null){
+            if (dishId != null) {
                 //本次添加到购物车的是菜品
                 Dish dish = dishMapper.getById(dishId);
                 shoppingCart.setDishId(dish.getId());
@@ -63,7 +63,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
                 shoppingCart.setImage(dish.getImage());
                 shoppingCart.setAmount(dish.getPrice());
 
-            }else{
+            } else {
                 //本次添加到购物车的是套餐
                 Long setmealId = shoppingCartDTO.getSetmealId();
                 Setmeal setmeal = setmealMapper.getById(setmealId);
@@ -76,6 +76,33 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             shoppingCart.setNumber(1);
             shoppingCart.setCreateTime(LocalDateTime.now());
             shoppingCartMapper.insert(shoppingCart);
+        }
+    }
+
+    /**
+     * 删除购物车
+     *
+     * @param shoppingCartDTO
+     */
+    @Override
+    public void subShoppingCart(ShoppingCartDTO shoppingCartDTO) {
+        ShoppingCart shoppingCart = new ShoppingCart();
+        BeanUtils.copyProperties(shoppingCartDTO, shoppingCart);
+        shoppingCart.setUserId(BaseContext.getCurrentId());
+        List<ShoppingCart> list = shoppingCartMapper.list(shoppingCart);
+
+        if (list != null && list.size() > 0) {
+            ShoppingCart cart = list.get(0);
+            Integer number = cart.getNumber();
+            if (number == 1) {
+                //数量为1 直接删除数据
+                shoppingCartMapper.deleteById(shoppingCart.getId());
+            } else {
+                //数量不为1 数量减1
+                cart.setNumber(number - 1);
+                shoppingCartMapper.updateNumberById(cart);
+            }
+
         }
     }
 }
