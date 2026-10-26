@@ -12,4 +12,51 @@
              #{payStatus}, #{amount}, #{remark}, #{phone}, #{address}, #{consignee}, #{estimatedDeliveryTime},
              #{deliveryStatus}, #{packAmount}, #{tablewareNumber}, #{tablewareStatus})
     </insert>
+
+    <update id="markPaid" parameterType="com.sky.entity.Orders">
+        update orders
+        set status = #{status}, pay_status = #{payStatus},
+            pay_method = #{payMethod}, checkout_time = #{checkoutTime}
+        where id = #{id} and user_id = #{userId}
+          and status = 1 and pay_status = 0
+    </update>
+
+    <update id="cancelPendingPayment" parameterType="com.sky.entity.Orders">
+        update orders
+        set status = #{status}, cancel_reason = #{cancelReason}, cancel_time = #{cancelTime}
+        where id = #{id} and user_id = #{userId}
+          and status = 1 and pay_status = 0
+    </update>
+
+    <update id="update" parameterType="com.sky.entity.Orders">
+        update orders
+        <set>
+            <if test="cancelReason != null and cancelReason!='' ">
+                cancel_reason=#{cancelReason},
+            </if>
+            <if test="rejectionReason != null and rejectionReason!='' ">
+                rejection_reason=#{rejectionReason},
+            </if>
+            <if test="cancelTime != null">
+                cancel_time=#{cancelTime},
+            </if>
+            <if test="payStatus != null">
+                pay_status=#{payStatus},
+            </if>
+            <if test="payMethod != null">
+                pay_method=#{payMethod},
+            </if>
+            <if test="checkoutTime != null">
+                checkout_time=#{checkoutTime},
+            </if>
+            <if test="status != null">
+                status = #{status},
+            </if>
+            <if test="deliveryTime != null">
+                delivery_time = #{deliveryTime}
+            </if>
+        </set>
+        where id = #{id}
+    </update>
+
 </mapper>

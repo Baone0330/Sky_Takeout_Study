@@ -35,6 +35,9 @@ logging:
         controller: info
 
 sky:
+  payment:
+    # 通用配置默认关闭，仅在本地开发配置中开启模拟支付。
+    mock-enabled: false
   jwt:
     # 设置jwt签名加密时使用的秘钥
     admin-secret-key: itcast

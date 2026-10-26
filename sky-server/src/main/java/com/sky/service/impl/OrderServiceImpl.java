@@ -1,24 +1,27 @@
 package com.sky.service.impl;
 
+import com.alibaba.fastjson.JSONObject;
 import com.sky.constant.MessageConstant;
 import com.sky.context.BaseContext;
+import com.sky.dto.OrdersPaymentDTO;
 import com.sky.dto.OrdersSubmitDTO;
-import com.sky.entity.AddressBook;
-import com.sky.entity.OrderDetail;
-import com.sky.entity.Orders;
-import com.sky.entity.ShoppingCart;
+import com.sky.entity.*;
 import com.sky.exception.AddressBookBusinessException;
+import com.sky.exception.OrderBusinessException;
 import com.sky.exception.ShoppingCartBusinessException;
-import com.sky.mapper.AddressBookMapper;
-import com.sky.mapper.OrderDetailMapper;
-import com.sky.mapper.OrderMapper;
-import com.sky.mapper.ShoppingCartMapper;
+import com.sky.exception.UserNotLoginException;
+import com.sky.mapper.*;
 import com.sky.service.OrderService;
+import com.sky.utils.WeChatPayUtil;
+import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderSubmitVO;
+import com.sky.vo.OrderVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -29,15 +32,19 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private OrderMapper orderMapper;
-
     @Autowired
     private OrderDetailMapper orderDetailMapper;
-
-    @Autowired
-    private AddressBookMapper addressBookMapper;
-
     @Autowired
     private ShoppingCartMapper shoppingCartMapper;
+    @Autowired
+    private UserMapper userMapper;
+    @Autowired
+    private AddressBookMapper addressBookMapper;
+    @Autowired
+    private WeChatPayUtil weChatPayUtil;
+
+    @Value("${sky.payment.mock-enabled:false}")
+    private boolean mockPaymentEnabled;
 
     /**
      * 用户下单
@@ -106,4 +113,181 @@ public class OrderServiceImpl implements OrderService {
 
         return orderSubmitVO;
     }
+
+    /**
+     * 订单支付
+     *
+     * @param ordersPaymentDTO
+     * @return
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO) throws Exception {
+        Long userId = currentUserId();
+        if (ordersPaymentDTO == null || !StringUtils.hasText(ordersPaymentDTO.getOrderNumber())) {
+            throw new OrderBusinessException("订单号不能为空");
+        }
+        if (!Integer.valueOf(1).equals(ordersPaymentDTO.getPayMethod())) {
+            throw new OrderBusinessException("仅支持微信支付");
+        }
+
+        // 行锁一直持有到事务提交；订单号和归属均由服务端校验。
+        Orders orders = orderMapper.getByNumberForUpdate(ordersPaymentDTO.getOrderNumber());
+        if (orders == null || !userId.equals(orders.getUserId())) {
+            throw new OrderBusinessException("订单不存在或无权操作");
+        }
+        if (isSuccessfullyPaid(orders)) {
+            // 网络重试、重复点击均返回成功，不重写结账时间，也不倒退配送状态。
+            return paymentResult(orders);
+        }
+        requirePendingPayment(orders);
+        if (orders.getOrderTime() == null ||
+                !orders.getOrderTime().plusMinutes(15).isAfter(LocalDateTime.now())) {
+            throw new OrderBusinessException("订单已超时，请取消后重新下单");
+        }
+        if (orders.getAmount() == null || orders.getAmount().signum() <= 0) {
+            throw new OrderBusinessException("订单金额异常");
+        }
+
+        if (mockPaymentEnabled) {
+            // 与真实支付成功共用状态更新逻辑；事务提交后才会向小程序返回成功。
+            completePayment(orders);
+            return paymentResult(orders);
+        }
+
+        User user = userMapper.getById(userId);
+        if (user == null || !StringUtils.hasText(user.getOpenid())) {
+            throw new OrderBusinessException("微信用户信息异常，请重新登录");
+        }
+        JSONObject jsonObject = weChatPayUtil.pay(
+                orders.getNumber(), orders.getAmount(), "苍穹外卖订单", user.getOpenid());
+        if (jsonObject == null || jsonObject.getString("code") != null ||
+                !StringUtils.hasText(jsonObject.getString("package"))) {
+            throw new OrderBusinessException("微信预支付失败，请稍后重试");
+        }
+        OrderPaymentVO vo = jsonObject.toJavaObject(OrderPaymentVO.class);
+        vo.setPackageStr(jsonObject.getString("package"));
+        vo.setMockPayment(false);
+        vo.setPaid(false);
+        vo.setOrderId(orders.getId());
+        vo.setOrderNumber(orders.getNumber());
+        vo.setOrderStatus(orders.getStatus());
+        vo.setPayStatus(orders.getPayStatus());
+        return vo;
+    }
+
+    /**
+     * 支付成功，修改订单状态
+     *
+     * @param outTradeNo
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void paySuccess(String outTradeNo) {
+        if (!StringUtils.hasText(outTradeNo)) {
+            throw new OrderBusinessException("订单号不能为空");
+        }
+        Orders orders = orderMapper.getByNumberForUpdate(outTradeNo);
+        if (orders == null) {
+            throw new OrderBusinessException("订单不存在");
+        }
+        if (!isSuccessfullyPaid(orders)) {
+            completePayment(orders);
+        }
+    }
+
+    private void completePayment(Orders orders) {
+        requirePendingPayment(orders);
+        LocalDateTime checkoutTime = LocalDateTime.now();
+        Orders update = Orders.builder()
+                .id(orders.getId())
+                .userId(orders.getUserId())
+                .status(Orders.TO_BE_CONFIRMED)
+                .payStatus(Orders.PAID)
+                .payMethod(1)
+                .checkoutTime(checkoutTime)
+                .build();
+        // 条件更新是最后一道保护，取消、退款等状态不允许被覆盖为支付成功。
+        if (orderMapper.markPaid(update) != 1) {
+            throw new OrderBusinessException("订单状态已变化，请刷新后重试");
+        }
+        orders.setStatus(update.getStatus());
+        orders.setPayStatus(update.getPayStatus());
+        orders.setPayMethod(update.getPayMethod());
+        orders.setCheckoutTime(checkoutTime);
+    }
+
+    private void requirePendingPayment(Orders orders) {
+        if (!Orders.PENDING_PAYMENT.equals(orders.getStatus()) ||
+                !Orders.UN_PAID.equals(orders.getPayStatus())) {
+            throw new OrderBusinessException("当前订单状态不允许支付");
+        }
+    }
+
+    private boolean isSuccessfullyPaid(Orders orders) {
+        Integer status = orders.getStatus();
+        return Orders.PAID.equals(orders.getPayStatus()) && status != null &&
+                status >= Orders.TO_BE_CONFIRMED && status <= Orders.COMPLETED;
+    }
+
+    private OrderPaymentVO paymentResult(Orders orders) {
+        return OrderPaymentVO.builder()
+                .mockPayment(mockPaymentEnabled)
+                .paid(true)
+                .orderId(orders.getId())
+                .orderNumber(orders.getNumber())
+                .orderStatus(orders.getStatus())
+                .payStatus(orders.getPayStatus())
+                .build();
+    }
+
+    private Long currentUserId() {
+        Long userId = BaseContext.getCurrentId();
+        if (userId == null) {
+            throw new UserNotLoginException("请先登录");
+        }
+        return userId;
+    }
+
+    private Orders currentUserOrder(Long id) {
+        Orders orders = orderMapper.getByIdAndUserId(id, currentUserId());
+        if (orders == null) {
+            throw new OrderBusinessException("订单不存在或无权操作");
+        }
+        return orders;
+    }
+
+    @Override
+    public OrderVO getOrderDetail(Long id) {
+        Orders orders = currentUserOrder(id);
+        OrderVO vo = new OrderVO();
+        BeanUtils.copyProperties(orders, vo);
+        vo.setOrderDetailList(orderDetailMapper.getByOrderId(id));
+        return vo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelPendingOrder(Long id) {
+        Orders orders = currentUserOrder(id);
+        if (Orders.CANCELLED.equals(orders.getStatus()) && Orders.UN_PAID.equals(orders.getPayStatus())) {
+            return;
+        }
+        if (!Orders.PENDING_PAYMENT.equals(orders.getStatus()) || !Orders.UN_PAID.equals(orders.getPayStatus())) {
+            throw new OrderBusinessException("仅支持取消未支付的待付款订单");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        boolean expired = orders.getOrderTime() != null && !orders.getOrderTime().plusMinutes(15).isAfter(now);
+        Orders update = Orders.builder()
+                .id(id)
+                .userId(orders.getUserId())
+                .status(Orders.CANCELLED)
+                .cancelTime(now)
+                .cancelReason(expired ? "支付超时，订单自动取消" : "用户取消待付款订单")
+                .build();
+        if (orderMapper.cancelPendingPayment(update) != 1) {
+            throw new OrderBusinessException("订单状态已变化，请刷新后重试");
+        }
+    }
+
 }

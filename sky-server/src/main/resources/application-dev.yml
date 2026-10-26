@@ -1,4 +1,7 @@
 sky:
+  payment:
+    # 个人学习环境：直接完成订单支付，不调用微信、不发生真实扣款。
+    mock-enabled: true
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     host: localhost
