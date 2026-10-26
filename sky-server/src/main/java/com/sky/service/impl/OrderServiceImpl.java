@@ -20,6 +20,7 @@ import com.sky.utils.WeChatPayUtil;
 import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderSubmitVO;
 import com.sky.vo.OrderVO;
+import com.sky.vo.OrderCancelVO;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -261,6 +263,11 @@ public class OrderServiceImpl implements OrderService {
         return orders;
     }
 
+    /**
+     * 查询当前用户订单详情
+     * @param id
+     * @return
+     */
     @Override
     public OrderVO getOrderDetail(Long id) {
         Orders orders = currentUserOrder(id);
@@ -270,28 +277,76 @@ public class OrderServiceImpl implements OrderService {
         return vo;
     }
 
+    /**
+     * 取消订单
+     * @param id
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancelPendingOrder(Long id) {
-        Orders orders = currentUserOrder(id);
-        if (Orders.CANCELLED.equals(orders.getStatus()) && Orders.UN_PAID.equals(orders.getPayStatus())) {
-            return;
+        // 兼容已有的超时取消调用，禁止在支付完成后自动退款。
+        cancelOrder(id, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderCancelVO cancelOrder(Long id, boolean unpaidOnly) {
+        Orders orders = orderMapper.getByIdAndUserIdForUpdate(id, currentUserId());
+        if (orders == null) {
+            throw new OrderBusinessException("订单不存在或无权操作");
         }
-        if (!Orders.PENDING_PAYMENT.equals(orders.getStatus()) || !Orders.UN_PAID.equals(orders.getPayStatus())) {
-            throw new OrderBusinessException("仅支持取消未支付的待付款订单");
+        if (Orders.CANCELLED.equals(orders.getStatus()) &&
+                (Orders.UN_PAID.equals(orders.getPayStatus()) || Orders.REFUND.equals(orders.getPayStatus()))) {
+            // 重试使用首次取消结果，不重复退款，也不覆盖首次取消时间。
+            return cancelResult(orders);
+        }
+        if (Orders.CONFIRMED.equals(orders.getStatus()) || Orders.DELIVERY_IN_PROGRESS.equals(orders.getStatus())) {
+            throw new OrderBusinessException("商家已接单或订单正在派送，取消订单请电话联系商家");
+        }
+        boolean unpaid = Orders.PENDING_PAYMENT.equals(orders.getStatus()) && Orders.UN_PAID.equals(orders.getPayStatus());
+        boolean paid = Orders.TO_BE_CONFIRMED.equals(orders.getStatus()) && Orders.PAID.equals(orders.getPayStatus());
+        if (!unpaid && !paid) {
+            throw new OrderBusinessException("当前订单状态不允许取消");
+        }
+        if (unpaidOnly && !unpaid) {
+            throw new OrderBusinessException("订单已支付，自动取消已停止，请刷新订单");
+        }
+        if (paid && !mockPaymentEnabled) {
+            throw new OrderBusinessException("当前未启用模拟退款，请联系商家处理");
+        }
+        if (paid && (orders.getAmount() == null || orders.getAmount().signum() <= 0 ||
+                !Integer.valueOf(1).equals(orders.getPayMethod()))) {
+            throw new OrderBusinessException("订单支付信息异常，请联系商家处理");
         }
         LocalDateTime now = LocalDateTime.now();
-        boolean expired = orders.getOrderTime() != null && !orders.getOrderTime().plusMinutes(15).isAfter(now);
+        boolean expired = unpaid && orders.getOrderTime() != null && !orders.getOrderTime().plusMinutes(15).isAfter(now);
         Orders update = Orders.builder()
                 .id(id)
                 .userId(orders.getUserId())
                 .status(Orders.CANCELLED)
+                .payStatus(paid ? Orders.REFUND : Orders.UN_PAID)
                 .cancelTime(now)
-                .cancelReason(expired ? "支付超时，订单自动取消" : "用户取消待付款订单")
+                .cancelReason(expired ? "支付超时，订单自动取消" : paid ? "用户取消待接单订单，模拟退款成功" : "用户取消待付款订单")
                 .build();
-        if (orderMapper.cancelPendingPayment(update) != 1) {
+        // 取消与模拟退款一次落库；金额、原结账时间和订单明细均保持不变。
+        if (orderMapper.cancelOrder(update, orders.getStatus(), orders.getPayStatus()) != 1) {
             throw new OrderBusinessException("订单状态已变化，请刷新后重试");
         }
+        // 返回数据库实际保存的时间精度，使首次响应与重复请求完全一致。
+        return cancelResult(orderMapper.getByIdAndUserId(id, orders.getUserId()));
+    }
+
+    private OrderCancelVO cancelResult(Orders orders) {
+        boolean refunded = Orders.REFUND.equals(orders.getPayStatus());
+        return OrderCancelVO.builder()
+                .id(orders.getId())
+                .status(orders.getStatus())
+                .payStatus(orders.getPayStatus())
+                .cancelReason(orders.getCancelReason())
+                .cancelTime(orders.getCancelTime())
+                .mockRefund(refunded && mockPaymentEnabled)
+                .refundAmount(refunded ? orders.getAmount() : BigDecimal.ZERO)
+                .build();
     }
 
     /**

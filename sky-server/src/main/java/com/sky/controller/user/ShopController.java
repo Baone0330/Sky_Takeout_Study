@@ -5,7 +5,9 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
@@ -18,6 +20,18 @@ public class ShopController {
 
     @Autowired
     RedisTemplate redisTemplate;
+
+    @Value("${sky.shop.phone:}")
+    private String shopPhone;
+
+    @GetMapping("/phone")
+    @ApiOperation("获取商家联系电话")
+    public Result<String> getPhone() {
+        if (!StringUtils.hasText(shopPhone)) {
+            return Result.error("商家暂未配置联系电话");
+        }
+        return Result.success(shopPhone.trim());
+    }
 
 
     /**

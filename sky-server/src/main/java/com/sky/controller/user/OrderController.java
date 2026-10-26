@@ -8,6 +8,7 @@ import com.sky.service.OrderService;
 import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderSubmitVO;
 import com.sky.vo.OrderVO;
+import com.sky.vo.OrderCancelVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
@@ -67,18 +68,27 @@ public class OrderController {
         return Result.success(pageResult);
     }
 
-
+    /**
+     * 查询当前用户订单详情
+     * @param id
+     * @return
+     */
     @GetMapping("/orderDetail/{id}")
     @ApiOperation("查询当前用户订单详情")
     public Result<OrderVO> orderDetail(@PathVariable Long id) {
         return Result.success(orderService.getOrderDetail(id));
     }
 
+    /**
+     * 取消订单
+     * @param id
+     * @return
+     */
     @PutMapping("/cancel/{id}")
-    @ApiOperation("取消当前用户待付款订单")
-    public Result<Void> cancel(@PathVariable Long id) {
-        orderService.cancelPendingOrder(id);
-        return Result.success();
+    @ApiOperation("取消当前用户待付款或待接单订单")
+    public Result<OrderCancelVO> cancel(@PathVariable Long id,
+                                       @RequestParam(defaultValue = "false") boolean unpaidOnly) {
+        return Result.success(orderService.cancelOrder(id, unpaidOnly));
     }
 
 }

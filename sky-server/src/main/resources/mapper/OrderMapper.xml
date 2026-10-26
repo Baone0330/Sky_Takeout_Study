@@ -21,11 +21,12 @@
           and status = 1 and pay_status = 0
     </update>
 
-    <update id="cancelPendingPayment" parameterType="com.sky.entity.Orders">
+    <update id="cancelOrder">
         update orders
-        set status = #{status}, cancel_reason = #{cancelReason}, cancel_time = #{cancelTime}
-        where id = #{id} and user_id = #{userId}
-          and status = 1 and pay_status = 0
+        set status = #{orders.status}, pay_status = #{orders.payStatus},
+            cancel_reason = #{orders.cancelReason}, cancel_time = #{orders.cancelTime}
+        where id = #{orders.id} and user_id = #{orders.userId}
+          and status = #{expectedStatus} and pay_status = #{expectedPayStatus}
     </update>
 
     <update id="update" parameterType="com.sky.entity.Orders">

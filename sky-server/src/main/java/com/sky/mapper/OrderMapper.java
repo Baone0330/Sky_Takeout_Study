@@ -29,11 +29,15 @@ public interface OrderMapper {
     @Select("select * from orders where id = #{id} and user_id = #{userId}")
     Orders getByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 
+    @Select("select * from orders where id = #{id} and user_id = #{userId} for update")
+    Orders getByIdAndUserIdForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
     /** 仅将当前用户的待付款、未支付订单改为已支付。 */
     int markPaid(Orders orders);
 
-    /** 仅取消当前用户的待付款、未支付订单，不涉及退款。 */
-    int cancelPendingPayment(Orders orders);
+    /** 按原始订单/支付状态执行取消，防止接单、支付或重复取消覆盖状态。 */
+    int cancelOrder(@Param("orders") Orders orders, @Param("expectedStatus") Integer expectedStatus,
+                    @Param("expectedPayStatus") Integer expectedPayStatus);
 
     /**
      * 修改订单信息

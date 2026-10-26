@@ -1,4 +1,7 @@
 sky:
+  shop:
+    # 取消订单时联系商家的号码，可通过 SHOP_PHONE 环境变量覆盖。
+    phone: ${SHOP_PHONE:13671407961}
   payment:
     # 个人学习环境：直接完成订单支付，不调用微信、不发生真实扣款。
     mock-enabled: true

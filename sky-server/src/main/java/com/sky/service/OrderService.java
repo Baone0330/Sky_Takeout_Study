@@ -6,6 +6,7 @@ import com.sky.result.PageResult;
 import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderSubmitVO;
 import com.sky.vo.OrderVO;
+import com.sky.vo.OrderCancelVO;
 
 public interface OrderService {
 
@@ -34,6 +35,9 @@ public interface OrderService {
 
     /** 取消当前登录用户的待付款订单。 */
     void cancelPendingOrder(Long id);
+
+    /** 用户主动取消待付款/待接单订单；自动超时取消必须设置 unpaidOnly=true。 */
+    OrderCancelVO cancelOrder(Long id, boolean unpaidOnly);
 
     /**
      * 历史订单查询
