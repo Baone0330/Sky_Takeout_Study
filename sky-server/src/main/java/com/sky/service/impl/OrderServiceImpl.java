@@ -1,8 +1,11 @@
 package com.sky.service.impl;
 
 import com.alibaba.fastjson.JSONObject;
+import com.github.pagehelper.Page;
+import com.github.pagehelper.PageHelper;
 import com.sky.constant.MessageConstant;
 import com.sky.context.BaseContext;
+import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersPaymentDTO;
 import com.sky.dto.OrdersSubmitDTO;
 import com.sky.entity.*;
@@ -11,6 +14,7 @@ import com.sky.exception.OrderBusinessException;
 import com.sky.exception.ShoppingCartBusinessException;
 import com.sky.exception.UserNotLoginException;
 import com.sky.mapper.*;
+import com.sky.result.PageResult;
 import com.sky.service.OrderService;
 import com.sky.utils.WeChatPayUtil;
 import com.sky.vo.OrderPaymentVO;
@@ -288,6 +292,51 @@ public class OrderServiceImpl implements OrderService {
         if (orderMapper.cancelPendingPayment(update) != 1) {
             throw new OrderBusinessException("订单状态已变化，请刷新后重试");
         }
+    }
+
+    /**
+     * 历史订单查询
+     * @param page
+     * @param pageSize
+     * @param status
+     * @return
+     */
+    @Override
+    public PageResult pageQuery(int page, int pageSize, Integer status) {
+        //设置分页
+        PageHelper.startPage(page, pageSize);
+
+        OrdersPageQueryDTO ordersPageQueryDTO = new OrdersPageQueryDTO();
+        // 获取当前用户id
+        ordersPageQueryDTO.setUserId(BaseContext.getCurrentId());
+        ordersPageQueryDTO.setStatus(status);
+
+        //设置分页查询
+        Page<Orders> pageQuery = orderMapper.pageQuery(ordersPageQueryDTO);
+
+        List<OrderVO> list = new ArrayList<>();
+        if (pageQuery != null && pageQuery.getTotal() >0) {
+            for (Orders orders : pageQuery) {
+
+                // 获取订单id
+                Long orderId = orders.getId();
+
+                //查询订单明细
+                List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(orderId);
+
+                //将订单明细添加到 VO中
+                OrderVO orderVO = new OrderVO();
+                BeanUtils.copyProperties(orders, orderVO);
+                orderVO.setOrderDetailList(orderDetailList);
+
+                list.add(orderVO);
+            }
+
+        }
+
+
+        //返回结果
+        return new PageResult(pageQuery.getTotal(), list);
     }
 
 }
