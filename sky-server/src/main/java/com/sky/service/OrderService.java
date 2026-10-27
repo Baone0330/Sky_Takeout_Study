@@ -4,15 +4,13 @@ import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersPaymentDTO;
 import com.sky.dto.OrdersSubmitDTO;
 import com.sky.result.PageResult;
-import com.sky.vo.OrderPaymentVO;
-import com.sky.vo.OrderSubmitVO;
-import com.sky.vo.OrderVO;
-import com.sky.vo.OrderCancelVO;
+import com.sky.vo.*;
 
 public interface OrderService {
 
     /**
      * 用户下单
+     *
      * @param ordersSubmitDTO
      * @return
      */
@@ -20,6 +18,7 @@ public interface OrderService {
 
     /**
      * 订单支付
+     *
      * @param ordersPaymentDTO
      * @return
      */
@@ -27,21 +26,29 @@ public interface OrderService {
 
     /**
      * 支付成功，修改订单状态
+     *
      * @param outTradeNo
      */
     void paySuccess(String outTradeNo);
 
-    /** 查询当前登录用户的订单及明细。 */
+    /**
+     * 查询当前登录用户的订单及明细。
+     */
     OrderVO getOrderDetail(Long id);
 
-    /** 取消当前登录用户的待付款订单。 */
+    /**
+     * 取消当前登录用户的待付款订单。
+     */
     void cancelPendingOrder(Long id);
 
-    /** 用户主动取消待付款/待接单订单；自动超时取消必须设置 unpaidOnly=true。 */
+    /**
+     * 用户主动取消待付款/待接单订单；自动超时取消必须设置 unpaidOnly=true。
+     */
     OrderCancelVO cancelOrder(Long id, boolean unpaidOnly);
 
     /**
      * 历史订单查询
+     *
      * @param page
      * @param pageSize
      * @param status
@@ -52,14 +59,23 @@ public interface OrderService {
 
     /**
      * 再来一单
+     *
      * @param id
      */
     void repetition(Long id);
 
     /**
      * 订单搜索
+     *
      * @param ordersPageQueryDTO
      * @return
      */
     PageResult conditionSearch(OrdersPageQueryDTO ordersPageQueryDTO);
+
+    /**
+     * 订单数量统计
+     *
+     * @return
+     */
+    OrderStatisticsVO statistics();
 }
