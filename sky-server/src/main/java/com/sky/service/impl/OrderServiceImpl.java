@@ -265,6 +265,7 @@ public class OrderServiceImpl implements OrderService {
 
     /**
      * 查询当前用户订单详情
+     *
      * @param id
      * @return
      */
@@ -279,6 +280,7 @@ public class OrderServiceImpl implements OrderService {
 
     /**
      * 取消订单
+     *
      * @param id
      */
     @Override
@@ -351,6 +353,7 @@ public class OrderServiceImpl implements OrderService {
 
     /**
      * 历史订单查询
+     *
      * @param page
      * @param pageSize
      * @param status
@@ -370,7 +373,7 @@ public class OrderServiceImpl implements OrderService {
         Page<Orders> pageQuery = orderMapper.pageQuery(ordersPageQueryDTO);
 
         List<OrderVO> list = new ArrayList<>();
-        if (pageQuery != null && pageQuery.getTotal() >0) {
+        if (pageQuery != null && pageQuery.getTotal() > 0) {
             for (Orders orders : pageQuery) {
 
                 // 获取订单id
@@ -392,6 +395,36 @@ public class OrderServiceImpl implements OrderService {
 
         //返回结果
         return new PageResult(pageQuery.getTotal(), list);
+    }
+
+
+    /**
+     * 再来一单
+     *
+     * @param id
+     */
+    @Override
+    public void repetition(Long id) {
+        // 获取用户id
+        Long userId = BaseContext.getCurrentId();
+
+        //查询订单明细
+        List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(id);
+
+        //重新添加到购物车
+        for (OrderDetail orderDetail : orderDetailList) {
+            ShoppingCart shoppingCart = new ShoppingCart();
+
+            //将订单明细复制到购物车对象中
+            BeanUtils.copyProperties(orderDetail, shoppingCart);
+            shoppingCart.setUserId(userId);
+            shoppingCart.setId(null);
+            shoppingCart.setCreateTime(LocalDateTime.now());
+
+            //向数据库插入购物车对象
+            shoppingCartMapper.insert(shoppingCart);
+        }
+
     }
 
 }

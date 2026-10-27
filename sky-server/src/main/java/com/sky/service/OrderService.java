@@ -49,5 +49,9 @@ public interface OrderService {
     PageResult pageQuery(int page, int pageSize, Integer status);
 
 
-
+    /**
+     * 再来一单
+     * @param id
+     */
+    void repetition(Long id);
 }
