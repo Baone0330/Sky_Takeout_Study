@@ -451,7 +451,7 @@ public class OrderServiceImpl implements OrderService {
         // 获取订单数量
         Integer toBeConfirmed = orderMapper.countStatus(Orders.TO_BE_CONFIRMED);
         Integer confirmed = orderMapper.countStatus(Orders.CONFIRMED);
-        Integer deliveryInProgress =  orderMapper.countStatus(Orders.DELIVERY_IN_PROGRESS);
+        Integer deliveryInProgress = orderMapper.countStatus(Orders.DELIVERY_IN_PROGRESS);
 
         // 封装到VO对象中
         OrderStatisticsVO orderStatisticsVO = OrderStatisticsVO.builder()
@@ -462,6 +462,29 @@ public class OrderServiceImpl implements OrderService {
 
         return orderStatisticsVO;
     }
+
+    /**
+     * 管理端查询订单详情
+     *
+     * @param id
+     * @return
+     */
+    @Override
+    public OrderVO getOrderDetailById(Long id) {
+        // 根据id查询订单
+        Orders orders = orderMapper.getById(id);
+
+        // 查询该订单对应的菜品/套餐明细
+        List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(orders.getId());
+
+        // 将该订单及其详情封装到OrderVO并返回
+        OrderVO orderVO = new OrderVO();
+        BeanUtils.copyProperties(orders, orderVO);
+        orderVO.setOrderDetailList(orderDetailList);
+
+        return orderVO;
+    }
+
 
     /**
      * 将Orders转化为OrderVO
