@@ -5,6 +5,7 @@ import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.sky.constant.MessageConstant;
 import com.sky.context.BaseContext;
+import com.sky.dto.OrdersConfirmDTO;
 import com.sky.dto.OrdersPageQueryDTO;
 import com.sky.dto.OrdersPaymentDTO;
 import com.sky.dto.OrdersSubmitDTO;
@@ -29,6 +30,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.sky.entity.Orders.CONFIRMED;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -299,7 +302,7 @@ public class OrderServiceImpl implements OrderService {
             // 重试使用首次取消结果，不重复退款，也不覆盖首次取消时间。
             return cancelResult(orders);
         }
-        if (Orders.CONFIRMED.equals(orders.getStatus()) || Orders.DELIVERY_IN_PROGRESS.equals(orders.getStatus())) {
+        if (CONFIRMED.equals(orders.getStatus()) || Orders.DELIVERY_IN_PROGRESS.equals(orders.getStatus())) {
             throw new OrderBusinessException("商家已接单或订单正在派送，取消订单请电话联系商家");
         }
         boolean unpaid = Orders.PENDING_PAYMENT.equals(orders.getStatus()) && Orders.UN_PAID.equals(orders.getPayStatus());
@@ -450,7 +453,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderStatisticsVO statistics() {
         // 获取订单数量
         Integer toBeConfirmed = orderMapper.countStatus(Orders.TO_BE_CONFIRMED);
-        Integer confirmed = orderMapper.countStatus(Orders.CONFIRMED);
+        Integer confirmed = orderMapper.countStatus(CONFIRMED);
         Integer deliveryInProgress = orderMapper.countStatus(Orders.DELIVERY_IN_PROGRESS);
 
         // 封装到VO对象中
@@ -483,6 +486,22 @@ public class OrderServiceImpl implements OrderService {
         orderVO.setOrderDetailList(orderDetailList);
 
         return orderVO;
+    }
+
+    /**
+     * 接单
+     *
+     * @param ordersConfirmDTO
+     */
+    @Override
+    public void confirm(OrdersConfirmDTO ordersConfirmDTO) {
+        //更新订单状态
+        Orders orders = Orders.builder()
+                .id(ordersConfirmDTO.getId())
+                .status(Orders.CONFIRMED)
+                .build();
+
+        orderMapper.update(orders);
     }
 
 
