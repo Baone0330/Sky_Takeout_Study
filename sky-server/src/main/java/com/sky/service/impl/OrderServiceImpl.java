@@ -427,4 +427,69 @@ public class OrderServiceImpl implements OrderService {
 
     }
 
+    /**
+     * 订单搜索
+     *
+     * @param ordersPageQueryDTO
+     * @return
+     */
+    @Override
+    public PageResult conditionSearch(OrdersPageQueryDTO ordersPageQueryDTO) {
+        //分页查询
+        PageHelper.startPage(ordersPageQueryDTO.getPage(), ordersPageQueryDTO.getPageSize());
+        Page<Orders> page = orderMapper.pageQuery(ordersPageQueryDTO);
+
+        // 部分订单状态，需要额外返回订单菜品信息，将Orders转化为OrderVO
+        List<OrderVO> orderVOList = getOrderVOList(page);
+        return new PageResult(page.getTotal(), orderVOList);
+    }
+
+    /**
+     * 将Orders转化为OrderVO
+     *
+     * @param page
+     * @return
+     */
+    private List<OrderVO> getOrderVOList(Page<Orders> page) {
+
+        List<OrderVO> orderVOList = new ArrayList<>();
+
+        //遍历页面的全部订单
+        for (Orders orders : page) {
+            OrderVO orderVO = new OrderVO();
+
+            //将Orders信息复制到OrderVO中
+            BeanUtils.copyProperties(orders, orderVO);
+
+            //获取订单id
+            Long orderId = orders.getId();
+
+            //查询订单明细
+            List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(orderId);
+            orderVO.setOrderDetailList(orderDetailList);
+
+            // 拼接订单菜品名称和数量
+            StringBuilder orderDishes = new StringBuilder();
+
+            for (OrderDetail orderDetail : orderDetailList) {
+                orderDishes.append(orderDetail.getName())
+                        .append("*")
+                        .append(orderDetail.getNumber())
+                        .append("、");
+            }
+
+            // 去掉最后一个多余的顿号
+            if (orderDishes.length() > 0) {
+                orderDishes.deleteCharAt(orderDishes.length() - 1);
+            }
+
+            // 设置订单菜品信息
+            orderVO.setOrderDishes(orderDishes.toString());
+
+            // 将转换后的VO加入集合
+            orderVOList.add(orderVO);
+        }
+        return orderVOList;
+    }
+
 }
