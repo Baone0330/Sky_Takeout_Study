@@ -5,10 +5,7 @@ import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.sky.constant.MessageConstant;
 import com.sky.context.BaseContext;
-import com.sky.dto.OrdersConfirmDTO;
-import com.sky.dto.OrdersPageQueryDTO;
-import com.sky.dto.OrdersPaymentDTO;
-import com.sky.dto.OrdersSubmitDTO;
+import com.sky.dto.*;
 import com.sky.entity.*;
 import com.sky.exception.AddressBookBusinessException;
 import com.sky.exception.OrderBusinessException;
@@ -502,6 +499,51 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         orderMapper.update(orders);
+    }
+
+    /**
+     * 拒单：已支付订单在模拟模式下全额退款，和拒单状态一起落库。
+     *
+     * @param ordersRejectionDTO
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reject(OrdersRejectionDTO ordersRejectionDTO) {
+        if (ordersRejectionDTO == null || ordersRejectionDTO.getId() == null) {
+            throw new OrderBusinessException("订单ID不能为空");
+        }
+        if (!StringUtils.hasText(ordersRejectionDTO.getRejectionReason())) {
+            throw new OrderBusinessException("拒单原因不能为空");
+        }
+        Orders orders = orderMapper.getById(ordersRejectionDTO.getId());
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        // 管理端复用现有行锁查询，使用订单所属用户ID，而不是管理员ID。
+        orders = orderMapper.getByIdAndUserIdForUpdate(orders.getId(), orders.getUserId());
+        if (orders == null || !Orders.TO_BE_CONFIRMED.equals(orders.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        boolean paid = Orders.PAID.equals(orders.getPayStatus());
+        if (!paid && !Orders.UN_PAID.equals(orders.getPayStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (paid && !mockPaymentEnabled) {
+            throw new OrderBusinessException("当前未启用模拟退款，不能将已支付订单标记为退款成功");
+        }
+        if (paid && (orders.getAmount() == null || orders.getAmount().signum() <= 0 ||
+                !Integer.valueOf(1).equals(orders.getPayMethod()))) {
+            throw new OrderBusinessException("订单支付信息异常，无法执行模拟退款");
+        }
+        // 仅更新拒单相关字段；保留原金额、支付方式、支付时间和订单明细。
+        Orders update = Orders.builder()
+                .id(orders.getId())
+                .status(Orders.CANCELLED)
+                .payStatus(paid ? Orders.REFUND : Orders.UN_PAID)
+                .rejectionReason(ordersRejectionDTO.getRejectionReason().trim())
+                .cancelTime(LocalDateTime.now())
+                .build();
+        orderMapper.update(update);
     }
 
 
