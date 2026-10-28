@@ -578,7 +578,7 @@ public class OrderServiceImpl implements OrderService {
 
             orderMapper.update(orderRefund);
             log.info("该订单已退款");
-        }else if (Orders.UN_PAID.equals(payStatus)) {
+        } else if (Orders.UN_PAID.equals(payStatus)) {
             // 如果用户未完成支付，直接取消并修改订单状态
             Orders orderCancel = Orders.builder()
                     .id(orders.getId())
@@ -591,6 +591,34 @@ public class OrderServiceImpl implements OrderService {
 
             orderMapper.update(orderCancel);
             log.info("该订单已取消");
+        }
+    }
+
+    /**
+     * 派送订单
+     *
+     * @param id
+     */
+    @Override
+    public void delivery(Long id) {
+        //根据id查询订单
+        Orders orders = orderMapper.getById(id);
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        //获取订单状态
+        Integer status = orders.getStatus();
+
+        //只有状态为“待派送”的订单可以执行派送订单操作
+        if(Orders.CONFIRMED.equals(status)) {
+            // 更新订单状态
+            Orders delivery = Orders.builder()
+                    .id(orders.getId())
+                    .status(Orders.DELIVERY_IN_PROGRESS)
+                    .build();
+            orderMapper.update(delivery);
+            log.info("订单已开始派送......");
         }
     }
 
