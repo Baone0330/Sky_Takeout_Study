@@ -48,6 +48,10 @@ sky:
     user-secret-key: itheima
     user-ttl: 7200000
     user-token-name: authentication
+  shop:
+    address: 广东省广州市番禺区小谷围街道外环西路100号
+  baidu:
+    ak: 7AY9Z4VVKPGfKOKQuzX08pFs5O4mtDmT
 
   upload:
     local-path: C:\Users\Baone\Desktop\java_project\uploads

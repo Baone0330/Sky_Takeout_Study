@@ -14,6 +14,7 @@ import com.sky.exception.UserNotLoginException;
 import com.sky.mapper.*;
 import com.sky.result.PageResult;
 import com.sky.service.OrderService;
+import com.sky.service.DeliveryRangeService;
 import com.sky.utils.WeChatPayUtil;
 import com.sky.vo.*;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +52,9 @@ public class OrderServiceImpl implements OrderService {
     @Value("${sky.payment.mock-enabled:false}")
     private boolean mockPaymentEnabled;
 
+    @Autowired
+    private DeliveryRangeService deliveryRangeService;
+
     /**
      * 用户下单
      *
@@ -58,18 +62,21 @@ public class OrderServiceImpl implements OrderService {
      * @return
      */
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
 
+        Long userId = currentUserId();
+        if (ordersSubmitDTO == null || ordersSubmitDTO.getAddressBookId() == null) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        }
         //1. 处理各种用户异常（地址簿为空，购物车为空）
         AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
-        if (addressBook == null) {
+        if (addressBook == null || !userId.equals(addressBook.getUserId())) {
             //抛出业务异常
             throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
         }
 
         //查询用户购物车数据
-        Long userId = BaseContext.getCurrentId();
         ShoppingCart shoppingCart = ShoppingCart.builder()
                 .userId(userId)
                 .build();
@@ -78,6 +85,10 @@ public class OrderServiceImpl implements OrderService {
             //抛出业务异常
             throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
         }
+
+        // 使用同一份完整地址做配送校验和订单快照，校验通过后才写入订单。
+        String deliveryAddress = buildDeliveryAddress(addressBook);
+        checkOutOfRange(deliveryAddress);
 
         //2. 向订单表插入一条数据
         Orders orders = new Orders();
@@ -90,7 +101,7 @@ public class OrderServiceImpl implements OrderService {
         orders.setPhone(addressBook.getPhone());
         orders.setConsignee(addressBook.getConsignee());
         orders.setUserId(userId);
-        orders.setAddress(addressBook.getProvinceName() + addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
+        orders.setAddress(deliveryAddress);
 
         orderMapper.insert(orders);
 
@@ -639,7 +650,7 @@ public class OrderServiceImpl implements OrderService {
         Integer status = orders.getStatus();
 
         //只有状态为“派送中”的订单可以执行订单完成操作
-        if(Orders.DELIVERY_IN_PROGRESS.equals(status)) {
+        if (Orders.DELIVERY_IN_PROGRESS.equals(status)) {
             //更新订单状态
             Orders orderComplete = Orders.builder()
                     .id(orders.getId())
@@ -700,4 +711,35 @@ public class OrderServiceImpl implements OrderService {
         return orderVOList;
     }
 
+
+    /**
+     * 检查客户的收货地址是否超出配送范围
+     *
+     * @param address
+     */
+    private void checkOutOfRange(String address) {
+        deliveryRangeService.check(address);
+    }
+
+    private String buildDeliveryAddress(AddressBook addressBook) {
+        if (!StringUtils.hasText(addressBook.getDetail()) ||
+                (!StringUtils.hasText(addressBook.getProvinceName()) &&
+                        !StringUtils.hasText(addressBook.getCityName()))) {
+            throw new AddressBookBusinessException("收货地址不完整，请补充省市和详细地址");
+        }
+        StringBuilder address = new StringBuilder();
+        String previous = null;
+        for (String part : new String[]{addressBook.getProvinceName(), addressBook.getCityName(),
+                addressBook.getDistrictName(), addressBook.getDetail()}) {
+            if (StringUtils.hasText(part)) {
+                String value = part.trim();
+                // 直辖市省、市同名时只拼一次，也避免缺失字段变成字面量 null。
+                if (!value.equals(previous)) {
+                    address.append(value);
+                }
+                previous = value;
+            }
+        }
+        return address.toString();
+    }
 }
