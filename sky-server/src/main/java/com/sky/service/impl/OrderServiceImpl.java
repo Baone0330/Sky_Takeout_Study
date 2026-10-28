@@ -16,6 +16,7 @@ import com.sky.result.PageResult;
 import com.sky.service.OrderService;
 import com.sky.utils.WeChatPayUtil;
 import com.sky.vo.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +32,7 @@ import java.util.List;
 import static com.sky.entity.Orders.CONFIRMED;
 
 @Service
+@Slf4j
 public class OrderServiceImpl implements OrderService {
 
     @Autowired
@@ -544,6 +546,52 @@ public class OrderServiceImpl implements OrderService {
                 .cancelTime(LocalDateTime.now())
                 .build();
         orderMapper.update(update);
+    }
+
+    /**
+     * 管理端取消订单
+     *
+     * @param ordersCancelDTO
+     */
+    @Override
+    public void cancel(OrdersCancelDTO ordersCancelDTO) {
+        //根据id查询订单
+        Orders orders = orderMapper.getById(ordersCancelDTO.getId());
+
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        //获取支付状态
+        Integer payStatus = orders.getPayStatus();
+
+        if (Orders.PAID.equals(payStatus)) {
+            //如果用户已经完成支付，需要为用户退款
+            Orders orderRefund = Orders.builder()
+                    .id(orders.getId())
+                    .userId(orders.getUserId())
+                    .status(Orders.CANCELLED)
+                    .payStatus(Orders.REFUND)
+                    .cancelReason(ordersCancelDTO.getCancelReason().trim())
+                    .cancelTime(LocalDateTime.now())
+                    .build();
+
+            orderMapper.update(orderRefund);
+            log.info("该订单已退款");
+        }else if (Orders.UN_PAID.equals(payStatus)) {
+            // 如果用户未完成支付，直接取消并修改订单状态
+            Orders orderCancel = Orders.builder()
+                    .id(orders.getId())
+                    .userId(orders.getUserId())
+                    .status(Orders.CANCELLED)
+                    .payStatus(Orders.UN_PAID)
+                    .cancelReason(ordersCancelDTO.getCancelReason().trim())
+                    .cancelTime(LocalDateTime.now())
+                    .build();
+
+            orderMapper.update(orderCancel);
+            log.info("该订单已取消");
+        }
     }
 
 
