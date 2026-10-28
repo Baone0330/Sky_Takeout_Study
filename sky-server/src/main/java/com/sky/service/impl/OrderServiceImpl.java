@@ -611,15 +611,44 @@ public class OrderServiceImpl implements OrderService {
         Integer status = orders.getStatus();
 
         //只有状态为“待派送”的订单可以执行派送订单操作
-        if(Orders.CONFIRMED.equals(status)) {
+        if (Orders.CONFIRMED.equals(status)) {
             // 更新订单状态
-            Orders delivery = Orders.builder()
+            Orders orderDelivery = Orders.builder()
                     .id(orders.getId())
                     .status(Orders.DELIVERY_IN_PROGRESS)
                     .build();
-            orderMapper.update(delivery);
+            orderMapper.update(orderDelivery);
             log.info("订单已开始派送......");
         }
+    }
+
+    /**
+     * 完成订单
+     *
+     * @param id
+     */
+    @Override
+    public void complete(Long id) {
+        //根据id查询订单
+        Orders orders = orderMapper.getById(id);
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        //获取订单状态
+        Integer status = orders.getStatus();
+
+        //只有状态为“派送中”的订单可以执行订单完成操作
+        if(Orders.DELIVERY_IN_PROGRESS.equals(status)) {
+            //更新订单状态
+            Orders orderComplete = Orders.builder()
+                    .id(orders.getId())
+                    .status(Orders.COMPLETED)
+                    .build();
+            orderMapper.update(orderComplete);
+            log.info("订单已完成......");
+        }
+
     }
 
 
