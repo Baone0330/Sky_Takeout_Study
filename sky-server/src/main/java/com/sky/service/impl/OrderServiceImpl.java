@@ -1,5 +1,6 @@
 package com.sky.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
@@ -13,22 +14,27 @@ import com.sky.exception.ShoppingCartBusinessException;
 import com.sky.exception.UserNotLoginException;
 import com.sky.mapper.*;
 import com.sky.result.PageResult;
-import com.sky.service.OrderService;
 import com.sky.service.DeliveryRangeService;
+import com.sky.service.OrderService;
 import com.sky.utils.WeChatPayUtil;
 import com.sky.vo.*;
+import com.sky.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.sky.entity.Orders.CONFIRMED;
 
@@ -48,6 +54,8 @@ public class OrderServiceImpl implements OrderService {
     private AddressBookMapper addressBookMapper;
     @Autowired
     private WeChatPayUtil weChatPayUtil;
+    @Autowired
+    private WebSocketServer webSocketServer;
 
     @Value("${sky.payment.mock-enabled:false}")
     private boolean mockPaymentEnabled;
@@ -210,6 +218,7 @@ public class OrderServiceImpl implements OrderService {
         if (!isSuccessfullyPaid(orders)) {
             completePayment(orders);
         }
+
     }
 
     private void completePayment(Orders orders) {
@@ -231,6 +240,34 @@ public class OrderServiceImpl implements OrderService {
         orders.setPayStatus(update.getPayStatus());
         orders.setPayMethod(update.getPayMethod());
         orders.setCheckoutTime(checkoutTime);
+        // 模拟支付、真实回调共用此处；只有首次状态更新成功才注册一次来单提醒。
+        notifyMerchantAfterCommit(1, orders);
+    }
+
+    private void notifyMerchantAfterCommit(int type, Orders orders) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", type);
+        message.put("orderId", orders.getId());
+        message.put("content", "订单号：" + orders.getNumber());
+        String json = JSON.toJSONString(message);
+        Runnable send = () -> {
+            try {
+                webSocketServer.sendToAllClient(json);
+            } catch (RuntimeException ex) {
+                // 已提交的支付不能因某个浏览器断线而变成支付失败。
+                log.warn("商家提醒发送失败，type={}，orderId={}", type, orders.getId());
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    send.run();
+                }
+            });
+        } else {
+            send.run();
+        }
     }
 
     private void requirePendingPayment(Orders orders) {
@@ -660,6 +697,29 @@ public class OrderServiceImpl implements OrderService {
             log.info("订单已完成......");
         }
 
+    }
+
+    /**
+     * 催单
+     *
+     * @param id
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reminder(Long id) {
+        if (id == null) {
+            throw new OrderBusinessException("订单ID不能为空");
+        }
+        Orders orders = orderMapper.getByIdAndUserIdForUpdate(id, currentUserId());
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        Integer status = orders.getStatus();
+        if (!Orders.PAID.equals(orders.getPayStatus()) || status == null ||
+                status < Orders.TO_BE_CONFIRMED || status > Orders.DELIVERY_IN_PROGRESS) {
+            throw new OrderBusinessException("当前订单状态不支持催单");
+        }
+        notifyMerchantAfterCommit(2, orders);
     }
 
 
